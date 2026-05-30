@@ -10,6 +10,8 @@ import { applyScopeChange } from "@/lib/generation-scope";
 import {
   MODEL_PRESETS,
   getPresetModel,
+  getPresetUiWarning,
+  resolveDisplayModel,
 } from "@/lib/model-presets";
 import type {
   AppType,
@@ -81,6 +83,7 @@ type ProjectFormProps = {
   error: string | null;
   hasApiKey: boolean | null;
   isEmptyWorkspace: boolean;
+  envDefaultModel: string;
 };
 
 export function createDefaultFormValues(): ProjectFormValues {
@@ -95,7 +98,7 @@ export function createDefaultFormValues(): ProjectFormValues {
       includePreflight: false,
       includeQualityReview: false,
       modelPreset: "balanced",
-      model: getPresetModel("balanced"),
+      model: "",
       temperature: DEFAULT_TEMPERATURE,
       maxTokens: undefined,
     },
@@ -120,12 +123,23 @@ export function ProjectForm({
   error,
   hasApiKey,
   isEmptyWorkspace,
+  envDefaultModel,
 }: ProjectFormProps) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
   const estimate = useMemo(
     () => estimateGeneration(values.settings, values.targetAgent),
     [values.settings, values.targetAgent],
+  );
+
+  const presetWarning = useMemo(
+    () => getPresetUiWarning(values.settings.modelPreset),
+    [values.settings.modelPreset],
+  );
+
+  const effectiveModel = useMemo(
+    () => resolveDisplayModel(values.settings, envDefaultModel),
+    [values.settings, envDefaultModel],
   );
 
   const set = <K extends keyof ProjectFormValues>(
@@ -155,7 +169,7 @@ export function ProjectForm({
       settings: {
         ...values.settings,
         modelPreset: preset,
-        model: preset === "custom" ? values.settings.model : getPresetModel(preset),
+        model: preset === "custom" ? "" : getPresetModel(preset, envDefaultModel),
       },
     });
   };
@@ -312,6 +326,9 @@ export function ProjectForm({
             Preflight: {estimate.includesPreflight ? "yes" : "no"} · Review:{" "}
             {estimate.includesReview ? "yes" : "no"}
           </p>
+          <p className="mt-1 truncate font-mono text-[10px] text-neutral-500">
+            Model: {effectiveModel}
+          </p>
         </div>
 
         <div className="border border-neutral-200">
@@ -399,6 +416,11 @@ export function ProjectForm({
                     )?.description
                   }
                 </p>
+                {presetWarning && (
+                  <p className="mt-1 border border-amber-200 bg-amber-50 px-2 py-1.5 text-[10px] leading-relaxed text-amber-900">
+                    {presetWarning}
+                  </p>
+                )}
               </Field>
 
               {values.settings.modelPreset === "custom" && (
@@ -407,9 +429,14 @@ export function ProjectForm({
                     className="field-input font-mono text-xs"
                     value={values.settings.model}
                     onChange={(e) => setSetting("model", e.target.value)}
-                    placeholder="provider/model-name"
+                    placeholder={envDefaultModel || "provider/model-name"}
                     disabled={isGenerating || isEnhancing}
                   />
+                  <p className="text-[10px] text-neutral-400">
+                    {values.settings.model.trim()
+                      ? `Using ${values.settings.model.trim()}`
+                      : `Empty — using OPENROUTER_MODEL (${envDefaultModel})`}
+                  </p>
                 </Field>
               )}
 

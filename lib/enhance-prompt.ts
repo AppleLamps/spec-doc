@@ -1,5 +1,5 @@
 import { DEFAULT_TEMPERATURE } from "./config";
-import { getPresetModel } from "./model-presets";
+import { ENHANCE_JSON_MODEL, getPresetModel } from "./model-presets";
 import type {
   AppType,
   GenerationScope,
@@ -8,8 +8,8 @@ import type {
   TargetAgent,
 } from "./types";
 
-/** Model used for prompt enhancement — keep in one place. */
-export const ENHANCE_PROMPT_MODEL = getPresetModel("fast");
+/** Model used for prompt enhancement — must support OpenRouter JSON mode. */
+export const ENHANCE_PROMPT_MODEL = ENHANCE_JSON_MODEL;
 
 export type EnhancePromptInput = {
   projectName: string;

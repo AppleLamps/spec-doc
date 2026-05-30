@@ -1,6 +1,7 @@
 export type OpenRouterErrorKind =
   | "missing_api_key"
   | "unauthorized"
+  | "insufficient_credits"
   | "rate_limited"
   | "model_not_found"
   | "provider_error"
@@ -12,6 +13,8 @@ const USER_MESSAGES: Record<OpenRouterErrorKind, string> = {
     "OpenRouter API key is not configured. Add OPENROUTER_API_KEY to .env.local and restart the dev server.",
   unauthorized:
     "OpenRouter rejected the API key. Check that OPENROUTER_API_KEY is valid and has not expired.",
+  insufficient_credits:
+    "OpenRouter account has insufficient credits. Add credits at openrouter.ai/settings/credits and try again.",
   rate_limited:
     "OpenRouter rate limit reached. Wait a moment and try again, or switch to a faster/cheaper model preset.",
   model_not_found:
@@ -38,6 +41,14 @@ export function classifyOpenRouterError(
   if (status === 401 || text.includes("invalid api key") || text.includes("unauthorized")) {
     return "unauthorized";
   }
+  if (
+    status === 402 ||
+    text.includes("insufficient credits") ||
+    text.includes("insufficient balance") ||
+    text.includes("payment required")
+  ) {
+    return "insufficient_credits";
+  }
   if (status === 429 || text.includes("rate limit")) {
     return "rate_limited";
   }
@@ -49,7 +60,7 @@ export function classifyOpenRouterError(
   ) {
     return "model_not_found";
   }
-  if (status === 402 || status === 403 || (status !== undefined && status >= 500)) {
+  if (status === 403 || (status !== undefined && status >= 500)) {
     return "provider_error";
   }
   if (
@@ -78,4 +89,10 @@ export function logOpenRouterError(
   detail: string,
 ): void {
   console.error(`[openrouter:${kind}]`, detail.slice(0, 500));
+}
+
+export function isRetryableOpenRouterError(
+  kind: OpenRouterErrorKind,
+): boolean {
+  return kind === "rate_limited" || kind === "provider_error";
 }

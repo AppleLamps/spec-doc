@@ -56,7 +56,7 @@ Add these in **Project → Settings → Environment Variables**:
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `OPENROUTER_API_KEY` | Yes | Your OpenRouter API key |
-| `OPENROUTER_MODEL` | No | Server fallback model (default: `anthropic/claude-sonnet-4`) |
+| `OPENROUTER_MODEL` | No | Default model when **Custom** preset has an empty model field (fallback: `anthropic/claude-sonnet-4`) |
 | `NEXT_PUBLIC_APP_URL` | No | Your production URL, e.g. `https://your-app.vercel.app` (used for OpenRouter referer) |
 
 Redeploy after adding or changing env vars.
@@ -125,10 +125,10 @@ Single-file regenerate and **Fix warnings** each use **1 API call**.
 
 Defined in `lib/model-presets.ts`:
 
-- **Fast / cheap** — `google/gemini-2.0-flash-001`
+- **Fast / cheap** — `google/gemini-2.5-flash` (JSON-capable; used for Enhance prompt)
 - **Balanced** — `anthropic/claude-sonnet-4`
 - **High quality** — `anthropic/claude-opus-4`
-- **Custom** — freeform OpenRouter model string
+- **Custom** — any OpenRouter model ID; leave blank to use `OPENROUTER_MODEL` from env
 
 ## Generated files
 
@@ -145,6 +145,7 @@ Defined in `lib/model-presets.ts`:
 | API key not configured | Set `OPENROUTER_API_KEY` in `.env.local` or Vercel env vars; redeploy |
 | Unauthorized | Verify key at [openrouter.ai/keys](https://openrouter.ai/keys) |
 | Rate limited | Wait, use Fast preset, or reduce scope |
+| Insufficient credits | Add credits at [openrouter.ai/settings/credits](https://openrouter.ai/settings/credits) |
 | Model not found | Check model string or use a preset |
 | Compile timeout on Vercel | Use Pro plan, smaller scope, or run locally |
 

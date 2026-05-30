@@ -49,6 +49,7 @@ import {
   saveWorkspace,
   serializeWorkspace,
 } from "@/lib/workspace-storage";
+import { getClientDefaultModel } from "@/lib/config";
 import {
   consumeNdjsonStream,
   isAbortError,
@@ -78,6 +79,7 @@ export function SpecWorkbench() {
   } | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const [hasApiKey, setHasApiKey] = useState<boolean | null>(null);
+  const [envDefaultModel, setEnvDefaultModel] = useState(getClientDefaultModel);
   const [runSummary, setRunSummary] = useState<RunSummary | null>(null);
   const [fileWarnings, setFileWarnings] = useState<
     Record<string, ValidationWarning[]>
@@ -229,7 +231,12 @@ export function SpecWorkbench() {
   useEffect(() => {
     fetch("/api/config")
       .then((res) => res.json())
-      .then((data: { hasApiKey?: boolean }) => setHasApiKey(!!data.hasApiKey))
+      .then((data: { hasApiKey?: boolean; defaultModel?: string }) => {
+        setHasApiKey(!!data.hasApiKey);
+        if (data.defaultModel?.trim()) {
+          setEnvDefaultModel(data.defaultModel.trim());
+        }
+      })
       .catch(() => setHasApiKey(null));
   }, []);
 
@@ -809,6 +816,7 @@ export function SpecWorkbench() {
             error={error}
             hasApiKey={hasApiKey}
             isEmptyWorkspace={isEmptyWorkspace}
+            envDefaultModel={envDefaultModel}
           />
           <div className="min-h-[200px] flex-1">
             <FileTree
