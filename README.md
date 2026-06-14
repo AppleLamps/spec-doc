@@ -4,7 +4,7 @@ Turn a rough app idea into build-ready specification files for AI coding agents.
 
 **Repository:** [github.com/AppleLamps/spec-doc](https://github.com/AppleLamps/spec-doc)
 
-Local/single-user MVP — no auth, payments, database, GitHub export, collaboration, or landing page.
+Local/single-user MVP — no auth, payments, database, GitHub export, collaboration, or landing page..
 
 ## Stack
 
