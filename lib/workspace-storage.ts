@@ -4,7 +4,13 @@ import {
   createInitialSpecFiles,
   reconcileSpecFiles,
 } from "./spec-files";
-import type { RunStatus, SpecFile, TargetAgent, GenerationSettings } from "./types";
+import type {
+  AdaptiveScopeSelection,
+  RunStatus,
+  SpecFile,
+  TargetAgent,
+  GenerationSettings,
+} from "./types";
 
 export const WORKSPACE_STORAGE_KEY = "prompt-to-spec-workspace-v2";
 
@@ -14,6 +20,7 @@ export type WorkspaceSnapshot = {
   files: SpecFile[];
   selectedPath: string | null;
   runStatus: RunStatus;
+  adaptiveSelection?: AdaptiveScopeSelection;
   savedAt: string;
 };
 
@@ -28,6 +35,7 @@ export function createEmptyWorkspace(
     files: createInitialSpecFiles(targetAgent),
     selectedPath: null,
     runStatus: "idle",
+    adaptiveSelection: undefined,
     savedAt: new Date().toISOString(),
   };
 }
@@ -81,7 +89,32 @@ function migrateLegacySnapshot(raw: unknown): WorkspaceSnapshot | null {
       parsed.runStatus === "generating" || parsed.runStatus === "preflight"
         ? "idle"
         : ((parsed.runStatus as RunStatus) ?? "idle"),
+    adaptiveSelection: undefined,
     savedAt: new Date().toISOString(),
+  };
+}
+
+function normalizeAdaptiveSelection(
+  raw: unknown,
+): AdaptiveScopeSelection | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const value = raw as Partial<AdaptiveScopeSelection>;
+  if (!Array.isArray(value.selectedPaths)) return undefined;
+
+  return {
+    selectedPaths: value.selectedPaths.filter(
+      (path): path is string => typeof path === "string",
+    ),
+    deselectedPaths: Array.isArray(value.deselectedPaths)
+      ? value.deselectedPaths.filter(
+          (item): item is { path: string; reason: string } =>
+            !!item &&
+            typeof item === "object" &&
+            typeof (item as { path?: unknown }).path === "string" &&
+            typeof (item as { reason?: unknown }).reason === "string",
+        )
+      : [],
+    rationale: typeof value.rationale === "string" ? value.rationale : "",
   };
 }
 
@@ -103,6 +136,7 @@ export function loadWorkspace(): WorkspaceSnapshot | null {
             parsed.runStatus === "generating" || parsed.runStatus === "preflight"
               ? "idle"
               : parsed.runStatus,
+          adaptiveSelection: normalizeAdaptiveSelection(parsed.adaptiveSelection),
           savedAt: parsed.savedAt,
         };
       }
@@ -147,6 +181,7 @@ export function serializeWorkspace(
     files: state.files,
     selectedPath: state.selectedPath,
     runStatus: state.runStatus,
+    adaptiveSelection: state.adaptiveSelection,
   });
 }
 

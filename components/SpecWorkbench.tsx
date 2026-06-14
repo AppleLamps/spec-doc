@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AdaptiveScopeDialog } from "@/components/AdaptiveScopeDialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { EditorPanel } from "@/components/EditorPanel";
 import { FileTree } from "@/components/FileTree";
@@ -23,17 +24,23 @@ import {
 import { mergeEnhanceResult, type EnhancePromptResult } from "@/lib/enhance-prompt";
 import { validateArtifact, type ValidationWarning } from "@/lib/artifact-validation";
 import {
+  buildFullAdaptiveSelection,
+  getRequiredAdaptivePaths,
+} from "@/lib/adaptive-scope";
+import {
   getActiveBundlePaths,
   getScopedCompilePaths,
 } from "@/lib/generation-scope";
 import {
   createInitialSpecFiles,
+  getAdaptivePoolDefinitions,
   PREFLIGHT_PATH,
   QUALITY_REVIEW_PATH,
   reconcileSpecFiles,
 } from "@/lib/spec-files";
 import { buildRunSummary } from "@/lib/run-summary";
 import type {
+  AdaptiveScopeSelection,
   GenerateMode,
   RunStatus,
   RunSummary,
@@ -59,8 +66,13 @@ const AUTOSAVE_DELAY_MS = 800;
 
 type PendingAction =
   | { type: "compile-full" }
+  | { type: "adaptive-full-fallback"; resetting: boolean }
   | { type: "clear-workspace" }
-  | { type: "continue-after-preflight"; resetting: boolean };
+  | {
+      type: "continue-after-preflight";
+      resetting: boolean;
+      compilePaths: string[];
+    };
 
 export function SpecWorkbench() {
   const [form, setForm] = useState(createDefaultFormValues);
@@ -86,6 +98,13 @@ export function SpecWorkbench() {
   >({});
   const [isEnhancing, setIsEnhancing] = useState(false);
   const [enhanceRationale, setEnhanceRationale] = useState<string | null>(null);
+  const [adaptiveSelection, setAdaptiveSelection] =
+    useState<AdaptiveScopeSelection | null>(null);
+  const [adaptiveDialogSelection, setAdaptiveDialogSelection] =
+    useState<AdaptiveScopeSelection | null>(null);
+  const [adaptiveDialogResetting, setAdaptiveDialogResetting] = useState(false);
+  const [adaptiveDialogOpen, setAdaptiveDialogOpen] = useState(false);
+  const [isSelectingAdaptiveScope, setIsSelectingAdaptiveScope] = useState(false);
 
   const enhanceAbortRef = useRef<AbortController | null>(null);
 
@@ -113,6 +132,31 @@ export function SpecWorkbench() {
     () => getActiveBundlePaths(form.settings, form.targetAgent),
     [form.settings, form.targetAgent],
   );
+  const adaptivePoolDefinitions = useMemo(
+    () => getAdaptivePoolDefinitions(form.targetAgent),
+    [form.targetAgent],
+  );
+  const requiredAdaptivePaths = useMemo(
+    () => getRequiredAdaptivePaths(form.targetAgent),
+    [form.targetAgent],
+  );
+  const activeCompilePaths = useMemo(
+    () =>
+      form.settings.scope === "adaptive" && adaptiveSelection
+        ? adaptiveSelection.selectedPaths
+        : scopedCompilePaths,
+    [adaptiveSelection, form.settings.scope, scopedCompilePaths],
+  );
+  const activeBundlePaths = useMemo(() => {
+    const paths = [...activeCompilePaths];
+    if (form.settings.includePreflight) paths.unshift(PREFLIGHT_PATH);
+    if (form.settings.includeQualityReview) paths.push(QUALITY_REVIEW_PATH);
+    return paths;
+  }, [
+    activeCompilePaths,
+    form.settings.includePreflight,
+    form.settings.includeQualityReview,
+  ]);
   const isEmptyWorkspace =
     !form.projectIdea.trim() && !hasFileContent(files);
 
@@ -128,10 +172,20 @@ export function SpecWorkbench() {
 
   const canDownload = hasExportableContent(files);
   const missingPaths = useMemo(
-    () => getMissingFilePaths(files).filter((path) => path !== QUALITY_REVIEW_PATH),
-    [files],
+    () => {
+      const allowed = new Set(
+        form.settings.scope === "adaptive" && !adaptiveSelection
+          ? []
+          : activeBundlePaths,
+      );
+      return getMissingFilePaths(files).filter(
+        (path) => path !== QUALITY_REVIEW_PATH && allowed.has(path),
+      );
+    },
+    [activeBundlePaths, adaptiveSelection, files, form.settings.scope],
   );
-  const canGenerateMissing = missingPaths.length > 0 && !isGenerating;
+  const canGenerateMissing =
+    missingPaths.length > 0 && !isGenerating && !isSelectingAdaptiveScope;
 
   const buildSnapshot = useCallback(
     () =>
@@ -140,8 +194,9 @@ export function SpecWorkbench() {
         files,
         selectedPath,
         runStatus,
+        adaptiveSelection: adaptiveSelection ?? undefined,
       }),
-    [form, files, selectedPath, runStatus],
+    [adaptiveSelection, form, files, selectedPath, runStatus],
   );
 
   const persistWorkspace = useCallback(
@@ -152,17 +207,26 @@ export function SpecWorkbench() {
         files,
         selectedPath,
         runStatus,
+        adaptiveSelection: adaptiveSelection ?? undefined,
         savedAt: new Date().toISOString(),
       });
       lastSavedSnapshotRef.current = buildSnapshot();
       if (markSaved) setSaveIndicator("saved");
     },
-    [form, files, selectedPath, runStatus, buildSnapshot],
+    [adaptiveSelection, form, files, selectedPath, runStatus, buildSnapshot],
   );
 
   const handleFormChange = (next: typeof form) => {
     if (next.targetAgent !== form.targetAgent) {
       setFiles((current) => reconcileSpecFiles(current, next.targetAgent));
+    }
+    if (
+      next.targetAgent !== form.targetAgent ||
+      next.settings.scope !== "adaptive"
+    ) {
+      setAdaptiveSelection(null);
+      setAdaptiveDialogOpen(false);
+      setAdaptiveDialogSelection(null);
     }
     setEnhanceRationale(null);
     setForm(next);
@@ -213,6 +277,14 @@ export function SpecWorkbench() {
       if (merged.targetAgent !== form.targetAgent) {
         setFiles((current) => reconcileSpecFiles(current, merged.targetAgent));
       }
+      if (
+        merged.targetAgent !== form.targetAgent ||
+        merged.settings.scope !== "adaptive"
+      ) {
+        setAdaptiveSelection(null);
+        setAdaptiveDialogOpen(false);
+        setAdaptiveDialogSelection(null);
+      }
       setForm(merged);
       setEnhanceRationale(payload.rationale || "Prompt and settings updated.");
     } catch (err) {
@@ -251,6 +323,7 @@ export function SpecWorkbench() {
           ? "idle"
           : saved.runStatus,
       );
+      setAdaptiveSelection(saved.adaptiveSelection ?? null);
       lastSavedSnapshotRef.current = serializeWorkspace({
         form: saved.form,
         files: saved.files,
@@ -259,6 +332,7 @@ export function SpecWorkbench() {
           saved.runStatus === "generating" || saved.runStatus === "preflight"
             ? "idle"
             : saved.runStatus,
+        adaptiveSelection: saved.adaptiveSelection,
       });
     } else {
       lastSavedSnapshotRef.current = serializeWorkspace({
@@ -266,6 +340,7 @@ export function SpecWorkbench() {
         files: createInitialSpecFiles("Cursor"),
         selectedPath: null,
         runStatus: "idle",
+        adaptiveSelection: undefined,
       });
     }
     setHydrated(true);
@@ -357,6 +432,8 @@ export function SpecWorkbench() {
     resetAll: boolean;
     resetPaths?: string[];
     preflightAssumptions?: string;
+    bundlePaths?: string[];
+    completionPaths?: string[];
     reviewErrorNonFatal?: boolean;
     fixWarnings?: string[];
   }): Promise<"ok" | "cancelled" | "error"> => {
@@ -389,7 +466,7 @@ export function SpecWorkbench() {
     if (options.targetPaths.length === 1) {
       setSelectedPath(options.targetPaths[0]);
     } else if (options.resetAll && options.mode === "full") {
-      setSelectedPath(scopedCompilePaths[0] ?? "README.md");
+      setSelectedPath(options.targetPaths[0] ?? "README.md");
     }
 
     const contextFiles = buildContextFiles(options.targetPaths);
@@ -409,7 +486,7 @@ export function SpecWorkbench() {
           targetPaths: options.targetPaths,
           contextFiles,
           preflightAssumptions: options.preflightAssumptions,
-          bundlePaths,
+          bundlePaths: options.bundlePaths ?? bundlePaths,
           fixWarnings: options.fixWarnings,
         }),
         signal: controller.signal,
@@ -457,10 +534,11 @@ export function SpecWorkbench() {
 
       if (result === "complete") {
         setFiles((current) => {
+          const completionPaths = options.completionPaths ?? scopedCompilePaths;
           setRunSummary(
             buildRunSummary(current, pathsForSummary, runStartedAtRef.current),
           );
-          if (allCompileArtifactsComplete(current, scopedCompilePaths)) {
+          if (allCompileArtifactsComplete(current, completionPaths)) {
             setRunStatus("complete");
           } else if (options.mode !== "review" && options.mode !== "preflight") {
             setRunStatus("idle");
@@ -500,7 +578,14 @@ export function SpecWorkbench() {
     }
   };
 
-  const runQualityReview = async () => {
+  const buildBundlePathsForCompile = (compilePaths: string[]) => {
+    const paths = [...compilePaths];
+    if (form.settings.includePreflight) paths.unshift(PREFLIGHT_PATH);
+    if (form.settings.includeQualityReview) paths.push(QUALITY_REVIEW_PATH);
+    return paths;
+  };
+
+  const runQualityReview = async (compilePaths: string[]) => {
     if (!form.settings.includeQualityReview) return;
 
     const preflightContent =
@@ -510,40 +595,52 @@ export function SpecWorkbench() {
       targetPaths: [QUALITY_REVIEW_PATH],
       resetAll: false,
       preflightAssumptions: extractPreflightAssumptions(preflightContent),
+      bundlePaths: buildBundlePathsForCompile(compilePaths),
+      completionPaths: compilePaths,
       reviewErrorNonFatal: true,
     });
   };
 
-  const executeMainCompile = async (resetting: boolean) => {
+  const executeMainCompile = async (
+    resetting: boolean,
+    compilePaths: string[],
+  ) => {
     const preflightContent =
       filesRef.current.find((file) => file.path === PREFLIGHT_PATH)?.content ?? "";
     const resetPaths = resetting
       ? [
-          ...scopedCompilePaths,
+          ...compilePaths,
           QUALITY_REVIEW_PATH,
           ...(form.settings.includePreflight ? [] : [PREFLIGHT_PATH]),
         ]
-      : scopedCompilePaths;
+      : compilePaths;
 
     const result = await runGeneration({
       mode: "full",
-      targetPaths: scopedCompilePaths,
+      targetPaths: compilePaths,
       resetAll: resetting,
       resetPaths: resetting ? resetPaths : undefined,
       preflightAssumptions: extractPreflightAssumptions(preflightContent),
+      bundlePaths: buildBundlePathsForCompile(compilePaths),
+      completionPaths: compilePaths,
     });
 
     if (result === "ok") {
-      await runQualityReview();
+      await runQualityReview(compilePaths);
     }
   };
 
-  const runPreflightStep = async (resetting: boolean): Promise<boolean> => {
+  const runPreflightStep = async (
+    resetting: boolean,
+    compilePaths: string[],
+  ): Promise<boolean> => {
     const result = await runGeneration({
       mode: "preflight",
       targetPaths: [PREFLIGHT_PATH],
       resetAll: resetting,
       resetPaths: resetting ? [PREFLIGHT_PATH, QUALITY_REVIEW_PATH] : [PREFLIGHT_PATH],
+      bundlePaths: buildBundlePathsForCompile(compilePaths),
+      completionPaths: compilePaths,
     });
 
     if (result !== "ok") return false;
@@ -553,7 +650,7 @@ export function SpecWorkbench() {
 
     if (needsPreflightConfirmation(preflightContent)) {
       setConfirmDialog({
-        action: { type: "continue-after-preflight", resetting },
+        action: { type: "continue-after-preflight", resetting, compilePaths },
         title: "Preflight assumptions",
         message:
           "Preflight found assumptions and ambiguities. Continue compiling with these assumptions?",
@@ -565,18 +662,83 @@ export function SpecWorkbench() {
     return true;
   };
 
-  const startFullCompile = async (resetting: boolean) => {
+  const startFullCompile = async (
+    resetting: boolean,
+    compilePaths = scopedCompilePaths,
+  ) => {
     if (form.settings.includePreflight) {
       setSelectedPath(PREFLIGHT_PATH);
-      const canContinue = await runPreflightStep(resetting);
+      const canContinue = await runPreflightStep(resetting, compilePaths);
       if (!canContinue) return;
     }
 
-    await executeMainCompile(resetting);
+    await executeMainCompile(resetting, compilePaths);
+  };
+
+  const requestAdaptiveSelection = async (resetting: boolean) => {
+    if (isSelectingAdaptiveScope) return;
+    if (!form.projectIdea.trim()) {
+      setError("Project idea is required.");
+      return;
+    }
+
+    setIsSelectingAdaptiveScope(true);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/adaptive-scope", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectName: form.projectName,
+          projectIdea: form.projectIdea,
+          appType: form.appType,
+          preferredStack: form.preferredStack,
+          targetAgent: form.targetAgent,
+        }),
+      });
+
+      const payload = (await response.json().catch(() => null)) as
+        | (AdaptiveScopeSelection & { error?: string })
+        | { error?: string }
+        | null;
+
+      if (!response.ok || !payload || !("selectedPaths" in payload)) {
+        throw new Error(
+          payload?.error ?? `Adaptive selection failed (${response.status})`,
+        );
+      }
+
+      setAdaptiveSelection(payload);
+      setAdaptiveDialogSelection(payload);
+      setAdaptiveDialogResetting(resetting);
+      setAdaptiveDialogOpen(true);
+    } catch (err) {
+      setConfirmDialog({
+        action: { type: "adaptive-full-fallback", resetting },
+        title: "Adaptive selection unavailable",
+        message:
+          err instanceof Error
+            ? `${err.message} Generate the full bundle instead?`
+            : "Adaptive selection failed. Generate the full bundle instead?",
+        confirmLabel: "Generate full bundle",
+      });
+    } finally {
+      setIsSelectingAdaptiveScope(false);
+    }
+  };
+
+  const startCompileForCurrentScope = async (resetting: boolean) => {
+    if (form.settings.scope === "adaptive") {
+      await requestAdaptiveSelection(resetting);
+      return;
+    }
+
+    await startFullCompile(resetting, scopedCompilePaths);
   };
 
   const handleCompile = () => {
-    if (isGenerating) return;
+    if (isGenerating || isSelectingAdaptiveScope) return;
 
     if (hasFileContent(files)) {
       setConfirmDialog({
@@ -588,7 +750,7 @@ export function SpecWorkbench() {
       return;
     }
 
-    void startFullCompile(false);
+    void startCompileForCurrentScope(false);
   };
 
   const handleGenerateMissing = () => {
@@ -597,6 +759,8 @@ export function SpecWorkbench() {
       mode: "missing",
       targetPaths: missingPaths,
       resetAll: false,
+      bundlePaths: activeBundlePaths,
+      completionPaths: activeCompilePaths,
       preflightAssumptions: extractPreflightAssumptions(
         filesRef.current.find((file) => file.path === PREFLIGHT_PATH)?.content ?? "",
       ),
@@ -609,6 +773,8 @@ export function SpecWorkbench() {
       mode: "single",
       targetPaths: [selectedFile.path],
       resetAll: false,
+      bundlePaths: activeBundlePaths,
+      completionPaths: activeCompilePaths,
       preflightAssumptions: extractPreflightAssumptions(
         filesRef.current.find((file) => file.path === PREFLIGHT_PATH)?.content ?? "",
       ),
@@ -624,6 +790,8 @@ export function SpecWorkbench() {
       mode: "fix",
       targetPaths: [selectedFile.path],
       resetAll: false,
+      bundlePaths: activeBundlePaths,
+      completionPaths: activeCompilePaths,
       preflightAssumptions: extractPreflightAssumptions(
         filesRef.current.find((file) => file.path === PREFLIGHT_PATH)?.content ?? "",
       ),
@@ -669,12 +837,22 @@ export function SpecWorkbench() {
     setConfirmDialog(null);
 
     if (action.type === "compile-full") {
-      void startFullCompile(true);
+      void startCompileForCurrentScope(true);
+      return;
+    }
+
+    if (action.type === "adaptive-full-fallback") {
+      const fullSelection = buildFullAdaptiveSelection(
+        form.targetAgent,
+        "Using the full adaptive pool because adaptive selection was unavailable.",
+      );
+      setAdaptiveSelection(fullSelection);
+      void startFullCompile(action.resetting, fullSelection.selectedPaths);
       return;
     }
 
     if (action.type === "continue-after-preflight") {
-      void executeMainCompile(action.resetting);
+      void executeMainCompile(action.resetting, action.compilePaths);
       return;
     }
 
@@ -689,14 +867,41 @@ export function SpecWorkbench() {
       setRunSummary(null);
       setFileWarnings({});
       setEnhanceRationale(null);
+      setAdaptiveSelection(null);
+      setAdaptiveDialogOpen(false);
+      setAdaptiveDialogSelection(null);
       lastSavedSnapshotRef.current = serializeWorkspace({
         form: defaults,
         files: createInitialSpecFiles(defaults.targetAgent),
         selectedPath: null,
         runStatus: "idle",
+        adaptiveSelection: undefined,
       });
       setSaveIndicator("saved");
     }
+  };
+
+  const handleAdaptiveConfirm = (selection: AdaptiveScopeSelection) => {
+    setAdaptiveSelection(selection);
+    setAdaptiveDialogOpen(false);
+    setAdaptiveDialogSelection(null);
+    void startFullCompile(adaptiveDialogResetting, selection.selectedPaths);
+  };
+
+  const handleAdaptiveGenerateFull = () => {
+    const fullSelection = buildFullAdaptiveSelection(
+      form.targetAgent,
+      "Using the full adaptive pool because the user selected the full bundle.",
+    );
+    setAdaptiveSelection(fullSelection);
+    setAdaptiveDialogOpen(false);
+    setAdaptiveDialogSelection(null);
+    void startFullCompile(adaptiveDialogResetting, fullSelection.selectedPaths);
+  };
+
+  const handleAdaptiveCancel = () => {
+    setAdaptiveDialogOpen(false);
+    setAdaptiveDialogSelection(null);
   };
 
   const forceSave = useCallback(() => {
@@ -776,7 +981,7 @@ export function SpecWorkbench() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-neutral-100">
+    <div className="flex min-h-screen flex-col bg-neutral-100 lg:h-full lg:min-h-0">
       <ConfirmDialog
         open={!!confirmDialog}
         title={confirmDialog?.title ?? ""}
@@ -784,6 +989,15 @@ export function SpecWorkbench() {
         confirmLabel={confirmDialog?.confirmLabel ?? "Confirm"}
         onConfirm={handleConfirmDialog}
         onCancel={() => setConfirmDialog(null)}
+      />
+      <AdaptiveScopeDialog
+        open={adaptiveDialogOpen}
+        selection={adaptiveDialogSelection}
+        poolDefinitions={adaptivePoolDefinitions}
+        requiredPaths={requiredAdaptivePaths}
+        onConfirm={handleAdaptiveConfirm}
+        onGenerateFull={handleAdaptiveGenerateFull}
+        onCancel={handleAdaptiveCancel}
       />
 
       <header className="flex shrink-0 items-center justify-between border-b border-neutral-200 bg-white px-4 py-2">
@@ -796,7 +1010,7 @@ export function SpecWorkbench() {
         <span className="font-mono text-[11px] text-neutral-400">{headerStatus}</span>
       </header>
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)_240px]">
+      <div className="grid grid-cols-1 lg:min-h-0 lg:flex-1 lg:grid-cols-[280px_minmax(0,1fr)_240px]">
         <aside className="flex min-h-0 flex-col border-b border-neutral-200 bg-white lg:border-b-0 lg:border-r">
           <ProjectForm
             values={form}
@@ -808,7 +1022,7 @@ export function SpecWorkbench() {
             onClearWorkspace={handleClearWorkspace}
             onEnhancePrompt={() => void handleEnhancePrompt()}
             isGenerating={isGenerating}
-            isEnhancing={isEnhancing}
+            isEnhancing={isEnhancing || isSelectingAdaptiveScope}
             enhanceRationale={enhanceRationale}
             canDownload={canDownload}
             canGenerateMissing={canGenerateMissing}
@@ -817,6 +1031,8 @@ export function SpecWorkbench() {
             hasApiKey={hasApiKey}
             isEmptyWorkspace={isEmptyWorkspace}
             envDefaultModel={envDefaultModel}
+            adaptiveSelection={adaptiveSelection}
+            adaptivePoolCount={adaptivePoolDefinitions.length}
           />
           <div className="min-h-[200px] flex-1">
             <FileTree

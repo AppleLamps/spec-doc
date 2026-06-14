@@ -14,6 +14,7 @@ import {
   resolveDisplayModel,
 } from "@/lib/model-presets";
 import type {
+  AdaptiveScopeSelection,
   AppType,
   GenerationScope,
   GenerationSettings,
@@ -50,6 +51,11 @@ const SCOPES: { id: GenerationScope; label: string; hint: string }[] = [
     hint: "Core files plus target agent bundle",
   },
   {
+    id: "adaptive",
+    label: "Adaptive",
+    hint: "AI picks which core + agent files to generate; you confirm before compile.",
+  },
+  {
     id: "full",
     label: "Full bundle",
     hint: "Preflight + agent files + quality review (defaults on)",
@@ -84,6 +90,8 @@ type ProjectFormProps = {
   hasApiKey: boolean | null;
   isEmptyWorkspace: boolean;
   envDefaultModel: string;
+  adaptiveSelection?: AdaptiveScopeSelection | null;
+  adaptivePoolCount?: number;
 };
 
 export function createDefaultFormValues(): ProjectFormValues {
@@ -124,6 +132,8 @@ export function ProjectForm({
   hasApiKey,
   isEmptyWorkspace,
   envDefaultModel,
+  adaptiveSelection = null,
+  adaptivePoolCount = 0,
 }: ProjectFormProps) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
@@ -141,6 +151,16 @@ export function ProjectForm({
     () => resolveDisplayModel(values.settings, envDefaultModel),
     [values.settings, envDefaultModel],
   );
+
+  const adaptiveEstimateActive =
+    values.settings.scope === "adaptive" && !!adaptiveSelection;
+  const compileFileCount = adaptiveEstimateActive
+    ? adaptiveSelection.selectedPaths.length
+    : estimate.compileFileCount;
+  const apiCallCount =
+    compileFileCount +
+    (estimate.includesPreflight ? 1 : 0) +
+    (estimate.includesReview ? 1 : 0);
 
   const set = <K extends keyof ProjectFormValues>(
     key: K,
@@ -320,7 +340,7 @@ export function ProjectForm({
             Compile estimate
           </p>
           <p className="mt-1 font-mono text-xs text-neutral-800">
-            {estimate.compileFileCount} files · {estimate.apiCallCount} API calls
+            {compileFileCount} files · {apiCallCount} API calls
           </p>
           <p className="mt-0.5 text-[10px] text-neutral-500">
             Preflight: {estimate.includesPreflight ? "yes" : "no"} · Review:{" "}
@@ -329,6 +349,12 @@ export function ProjectForm({
           <p className="mt-1 truncate font-mono text-[10px] text-neutral-500">
             Model: {effectiveModel}
           </p>
+          {adaptiveEstimateActive && (
+            <p className="mt-1 text-[10px] text-neutral-500">
+              Adaptive: {adaptiveSelection.selectedPaths.length} of{" "}
+              {adaptivePoolCount || estimate.compileFileCount} files selected
+            </p>
+          )}
         </div>
 
         <div className="border border-neutral-200">
@@ -364,6 +390,15 @@ export function ProjectForm({
                 <p className="text-[10px] text-neutral-400">
                   {SCOPES.find((s) => s.id === values.settings.scope)?.hint}
                 </p>
+                {values.settings.scope === "adaptive" && adaptiveSelection && (
+                  <div className="border border-neutral-200 bg-white px-2 py-1.5 text-[10px] leading-relaxed text-neutral-600">
+                    <p className="font-mono text-neutral-800">
+                      {adaptiveSelection.selectedPaths.length} of{" "}
+                      {adaptivePoolCount || estimate.compileFileCount} files selected
+                    </p>
+                    <p className="mt-1">{adaptiveSelection.rationale}</p>
+                  </div>
+                )}
               </Field>
 
               <label className="flex items-start gap-2">

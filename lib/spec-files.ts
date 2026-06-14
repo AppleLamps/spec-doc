@@ -112,6 +112,15 @@ export function getCompilePaths(targetAgent: TargetAgent): string[] {
   ];
 }
 
+export function getAdaptivePoolDefinitions(
+  targetAgent: TargetAgent,
+): SpecFileDefinition[] {
+  return [
+    ...CORE_SPEC_DEFINITIONS,
+    ...getAgentFileDefinitions(targetAgent),
+  ];
+}
+
 export function getDefinitionByPath(
   path: string,
   targetAgent: TargetAgent,

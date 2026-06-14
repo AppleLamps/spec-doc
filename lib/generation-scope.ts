@@ -2,6 +2,7 @@ import type { GenerationScope, GenerationSettings, TargetAgent } from "./types";
 import { getAgentFileDefinitions } from "./agent-files";
 import {
   CORE_SPEC_DEFINITIONS,
+  getAdaptivePoolDefinitions,
   PREFLIGHT_PATH,
   QUALITY_REVIEW_PATH,
 } from "./spec-files";
@@ -25,6 +26,8 @@ export function getScopedCompilePaths(
   switch (settings.scope) {
     case "core":
       return getCorePaths();
+    case "adaptive":
+      return getAdaptivePoolDefinitions(targetAgent).map((file) => file.path);
     case "core-agent":
     case "full":
       return [
@@ -42,6 +45,7 @@ export function scopeCheckboxDefaults(
   switch (scope) {
     case "full":
       return { includePreflight: true, includeQualityReview: true };
+    case "adaptive":
     case "core-agent":
     case "core":
     default:

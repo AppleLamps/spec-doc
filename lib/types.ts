@@ -40,7 +40,13 @@ export type AppType =
 
 export type TargetAgent = "Cursor" | "Claude Code" | "Codex" | "Generic Agent";
 
-export type GenerationScope = "core" | "core-agent" | "full";
+export type GenerationScope = "core" | "core-agent" | "full" | "adaptive";
+
+export type AdaptiveScopeSelection = {
+  selectedPaths: string[];
+  deselectedPaths: { path: string; reason: string }[];
+  rationale: string;
+};
 
 export type ModelPreset = "fast" | "balanced" | "high-quality" | "custom";
 

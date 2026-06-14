@@ -33,7 +33,14 @@ export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 function parseScope(raw: unknown): GenerationScope {
-  if (raw === "core" || raw === "core-agent" || raw === "full") return raw;
+  if (
+    raw === "core" ||
+    raw === "core-agent" ||
+    raw === "full" ||
+    raw === "adaptive"
+  ) {
+    return raw;
+  }
   return "core-agent";
 }
 

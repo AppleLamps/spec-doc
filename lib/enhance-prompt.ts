@@ -51,7 +51,7 @@ const TARGET_AGENTS: TargetAgent[] = [
   "Generic Agent",
 ];
 
-const SCOPES: GenerationScope[] = ["core", "core-agent", "full"];
+const SCOPES: GenerationScope[] = ["core", "core-agent", "full", "adaptive"];
 
 const MODEL_PRESETS: ModelPreset[] = ["fast", "balanced", "high-quality"];
 
@@ -72,6 +72,7 @@ Rules for settings:
 - scope "core": quick first draft, idea is simple or user wants minimal API calls.
 - scope "core-agent": default for most apps — core specs plus agent instruction files.
 - scope "full": complex/ambiguous ideas, many integrations, or enterprise workflows — enable preflight + review defaults.
+- scope "adaptive": ambiguous project shape where AI should first recommend which core + agent files are worth generating; keep preflight/review separate.
 - includePreflight: true when requirements are underspecified or assumptions are risky.
 - includeQualityReview: true for full scope or when idea spans many subsystems.
 - modelPreset "fast": simple CRUD, landing pages, small tools.
