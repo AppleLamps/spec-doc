@@ -265,6 +265,24 @@ export async function POST(request: Request) {
       };
 
       try {
+        // Accumulate generated output so each file is conditioned on the
+        // files produced earlier in this same run. Without this, a full
+        // compile generates every file in isolation and they contradict
+        // each other (mismatched IDs, entities, endpoints, stack choices).
+        const accumulatedContext: ContextFile[] = [...(input.contextFiles ?? [])];
+
+        const recordGenerated = (path: string, content: string) => {
+          // Quality review is meta-output, not spec content to align to.
+          if (path === QUALITY_REVIEW_PATH || !content.trim()) return;
+          const entry: ContextFile = { path, content };
+          const existing = accumulatedContext.findIndex((ctx) => ctx.path === path);
+          if (existing >= 0) {
+            accumulatedContext[existing] = entry;
+          } else {
+            accumulatedContext.push(entry);
+          }
+        };
+
         for (const file of filesToGenerate) {
           if (request.signal.aborted) {
             emit({ type: "cancelled", path: file.path });
@@ -273,8 +291,14 @@ export async function POST(request: Request) {
 
           emit({ type: "file_start", path: file.path });
 
+          const fileInput: GenerateRequest = {
+            ...input,
+            contextFiles: accumulatedContext.filter((ctx) => ctx.path !== file.path),
+          };
+          let buffer = "";
+
           try {
-            for await (const delta of streamSpecFile(input, file, request.signal, {
+            for await (const delta of streamSpecFile(fileInput, file, request.signal, {
               onUsage: (usage, model) => {
                 emit({
                   type: "usage",
@@ -288,6 +312,7 @@ export async function POST(request: Request) {
                 emit({ type: "cancelled", path: file.path });
                 return;
               }
+              buffer += delta;
               emit({ type: "file_delta", path: file.path, delta });
             }
 
@@ -296,6 +321,7 @@ export async function POST(request: Request) {
               return;
             }
 
+            recordGenerated(file.path, buffer);
             emit({ type: "file_done", path: file.path });
           } catch (error) {
             if (request.signal.aborted || isAbortError(error)) {
