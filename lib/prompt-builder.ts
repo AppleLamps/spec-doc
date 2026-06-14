@@ -10,6 +10,23 @@ import {
 const SYSTEM_PROMPT =
   "You generate precise, build-ready software specification files for AI coding agents. You are not writing marketing copy. You are producing implementation-ready documentation. Be specific. Include concrete decisions, edge cases, constraints, non-goals, and assumptions. Do not use vague filler, placeholders, or marketing language.";
 
+const PREFLIGHT_SYSTEM_PROMPT =
+  "You analyze a rough software idea before an automated spec compiler runs. Surface the interpreted idea, the missing decisions, and the risky ambiguities, then resolve each one yourself with a concrete, reasonable assumption so the compile can proceed unattended. You are not writing marketing copy.";
+
+const REVIEW_SYSTEM_PROMPT =
+  "You are a critical reviewer auditing a set of already-generated specification files before they are handed to an automated coding agent. Find contradictions across files, missing requirements, weak assumptions, implementation risks, and test-coverage gaps, then give concrete fixes. Be specific and do not soften findings. You are reviewing the specs, not rewriting them, and you must not treat them as correct by default.";
+
+/**
+ * Applies to every prompt. The output is consumed by an automated agent with no
+ * human in the loop, so the model must never ask questions or leave blanks.
+ */
+const AUTOMATION_RULES = [
+  "Automation constraints (strict):",
+  "- The output is consumed by an automated coding agent. There is no human in the loop to answer questions or fill anything in.",
+  "- Never ask the user questions and never instruct any reader to ask for clarification. Resolve every open decision yourself.",
+  "- Never emit placeholders, blanks, TODO/TBD, or 'fill this in' sections. Choose a concrete default and label it as an assumption.",
+].join("\n");
+
 const ANTI_SLOP_RULES = [
   "Anti-filler rules (strict):",
   "- No vague recommendations without implementation detail.",
@@ -21,8 +38,14 @@ const ANTI_SLOP_RULES = [
   "- When user input is missing, choose a concrete default and label it as an assumption.",
 ].join("\n");
 
-export function buildSystemPrompt(): string {
-  return SYSTEM_PROMPT;
+export function buildSystemPrompt(path?: string): string {
+  const persona =
+    path === PREFLIGHT_PATH
+      ? PREFLIGHT_SYSTEM_PROMPT
+      : path === QUALITY_REVIEW_PATH
+        ? REVIEW_SYSTEM_PROMPT
+        : SYSTEM_PROMPT;
+  return `${persona}\n\n${AUTOMATION_RULES}`;
 }
 
 function buildFileList(bundlePaths: string[], targetAgent: TargetAgent): string {
@@ -37,7 +60,8 @@ function buildFileSpecificRequirements(path: string, targetAgent: TargetAgent): 
   if (path === PREFLIGHT_PATH) {
     return [
       "File-specific requirement for preflight.md:",
-      "- Include: Summary of interpreted idea, Critical missing decisions, Reasonable assumptions, Risky ambiguities, Suggested questions, Proceed with assumptions section.",
+      "- Include: Summary of interpreted idea, Critical missing decisions, Reasonable assumptions, Risky ambiguities, Proceed with assumptions section.",
+      "- Resolve every critical missing decision and risky ambiguity inline with a concrete assumption. Do not pose questions for a human to answer.",
       "- End with exactly this section:",
       "## Proceed with assumptions",
       "Can proceed with assumptions: yes|no",
@@ -57,7 +81,7 @@ function buildFileSpecificRequirements(path: string, targetAgent: TargetAgent): 
     return [
       `File-specific requirement for Cursor rule ${path}:`,
       "- MDC-compatible markdown, clear ## headings, imperative rules.",
-      "- Include: Project goal, Files to read first, Implementation order, Coding constraints, Testing requirements, Forbidden actions, When to ask for clarification, PR/commit behavior, Style conventions, Definition of done.",
+      "- Include: Project goal, Files to read first, Implementation order, Coding constraints, Testing requirements, Forbidden actions, How to handle ambiguity (proceed with documented assumptions, never block on questions), PR/commit behavior, Style conventions, Definition of done.",
       "- Keep under ~120 lines.",
     ].join("\n");
   }
@@ -65,7 +89,7 @@ function buildFileSpecificRequirements(path: string, targetAgent: TargetAgent): 
   if (path === "CLAUDE.md" || path === "AGENTS.md" || path === "AGENT.md") {
     return [
       `File-specific requirement for ${path}:`,
-      "- Direct imperative instructions: goal, read-first files, implementation order, constraints, testing, forbidden actions, ambiguity handling, PR/commit behavior, style, definition of done.",
+      "- Direct imperative instructions: goal, read-first files, implementation order, constraints, testing, forbidden actions, ambiguity handling (proceed with documented assumptions, never block on questions), PR/commit behavior, style, definition of done.",
     ].join("\n");
   }
 
@@ -114,14 +138,19 @@ export function buildUserPrompt(
 
   const fileSpecific = buildFileSpecificRequirements(file.path, input.targetAgent);
 
+  const isReview = file.path === QUALITY_REVIEW_PATH;
+  const isPreflight = file.path === PREFLIGHT_PATH;
+
   const contextBlock =
     contextFiles.length > 0
       ? [
           "",
-          "Existing bundle files (align with these; do not contradict):",
+          isReview
+            ? "Generated spec files under review (audit these for contradictions, gaps, and weak assumptions; do not conform to them or treat them as correct):"
+            : "Existing bundle files (align with these; do not contradict):",
           ...contextFiles.map(
             (ctx) =>
-              `\n### Existing: ${ctx.path}\n${truncateContext(ctx.content)}`,
+              `\n### ${ctx.path}\n${truncateContext(ctx.content)}`,
           ),
         ].join("\n")
       : "";
@@ -145,10 +174,29 @@ export function buildUserPrompt(
         ].join("\n")
       : "";
 
+  const opener = input.fixWarnings?.length
+    ? "Regenerate this file to fix the validation warnings below."
+    : isReview
+      ? "Produce the quality-review file for the agent bundle below."
+      : isPreflight
+        ? "Produce the preflight analysis for the agent bundle below."
+        : "Generate a single specification file for the agent bundle below.";
+
+  // Cross-file dedup/consistency rules only apply when authoring a real bundle
+  // file. The review file must be free to quote and contradict the others, and
+  // preflight runs before any file exists.
+  const crossFileBlock =
+    isReview || isPreflight
+      ? ""
+      : [
+          "",
+          "Cross-file rules:",
+          "- Do not duplicate content from other files in this bundle.",
+          "- Do not contradict already generated files.",
+        ].join("\n");
+
   return [
-    input.fixWarnings?.length
-      ? "Regenerate this specification file to fix validation warnings."
-      : "Generate a single specification file for the agent bundle below.",
+    opener,
     "",
     `Project name: ${input.projectName}`,
     `Project idea: ${input.projectIdea}`,
@@ -164,10 +212,7 @@ export function buildUserPrompt(
     preflightBlock,
     contextBlock,
     fixBlock,
-    "",
-    "Cross-file rules:",
-    "- Do not duplicate content from other files in this bundle.",
-    "- Do not contradict already generated files.",
+    crossFileBlock,
     ANTI_SLOP_RULES,
     fileSpecific,
     "",

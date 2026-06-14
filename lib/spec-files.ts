@@ -83,7 +83,7 @@ export const PREFLIGHT_DEFINITION: SpecFileDefinition = {
   path: PREFLIGHT_PATH,
   title: "Preflight",
   purpose:
-    "Preflight analysis: interpreted idea summary, critical missing decisions, reasonable assumptions, risky ambiguities, suggested questions, and whether compilation can proceed.",
+    "Preflight analysis: interpreted idea summary, critical missing decisions, reasonable assumptions that resolve them, risky ambiguities, and whether compilation can proceed.",
 };
 
 export const QUALITY_REVIEW_DEFINITION: SpecFileDefinition = {

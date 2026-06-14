@@ -166,7 +166,7 @@ export async function* streamSpecFile(
     const result = client.callModel(
       {
         ...routing,
-        instructions: buildSystemPrompt(),
+        instructions: buildSystemPrompt(file.path),
         input: buildUserPrompt(input, file, input.contextFiles ?? []),
         temperature: resolveTemperature(input.settings.temperature),
         maxOutputTokens: resolveEffectiveMaxTokens(input.settings),

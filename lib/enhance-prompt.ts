@@ -74,6 +74,8 @@ Rules for the rewritten idea:
 - Label reasonable assumptions clearly (e.g. "Assumption: …").
 - No marketing language, no placeholders (TODO/TBD), no vague "best practices" filler.
 - Prefer testable, actionable statements.
+- Target current, stable technology choices. Avoid deprecated APIs, end-of-life versions, and outdated patterns; when you name a stack or library, prefer its current stable major version.
+- If the idea involves AI, LLMs, agents, chat, content generation, or retrieval, the brief must also pin down: the model/provider approach, the core prompt or agent design, retrieval and data sources (plus vector store if applicable), evaluation and guardrails for bad or unsafe output, streaming and latency UX, and cost, rate-limit, and prompt-data privacy constraints. If the idea has no AI component, do not add one.
 
 Rules for settings:
 - scope "core": quick first draft, idea is simple or user wants minimal API calls.

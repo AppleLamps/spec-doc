@@ -22,7 +22,6 @@ function stubModel(
       modality: "text->text",
       inputModalities: ["text"],
       outputModalities: ["text"],
-      tokenizer: "",
       instructType: null,
     },
     contextLength: 32_000,
@@ -43,7 +42,7 @@ function stubModel(
       maxCompletionTokens: 16_000,
       isModerated: false,
     },
-    links: {},
+    links: { details: "" },
   };
 }
 
