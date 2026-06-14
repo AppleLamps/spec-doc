@@ -72,9 +72,9 @@ export function buildStructuredChatRequest(input: {
     ],
     temperature: input.temperature ?? 0.3,
     stream: false,
-    ...(input.maxTokens !== undefined
-      ? { maxCompletionTokens: input.maxTokens }
-      : {}),
+    // Use maxTokens (not maxCompletionTokens): requireParameters + max_completion_tokens
+    // yields 404 "No endpoints found" on OpenRouter for json_schema requests.
+    ...(input.maxTokens !== undefined ? { maxTokens: input.maxTokens } : {}),
     responseFormat: toChatJsonSchemaFormat(input.jsonSchema),
     provider: {
       requireParameters: true,

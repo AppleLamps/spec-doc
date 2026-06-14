@@ -288,7 +288,7 @@ export async function completeOpenRouterChat(options: {
             temperature: options.temperature ?? 0.3,
             stream: false,
             ...(options.maxTokens !== undefined
-              ? { maxCompletionTokens: options.maxTokens }
+              ? { maxTokens: options.maxTokens }
               : {}),
             ...(useJsonObject
               ? {

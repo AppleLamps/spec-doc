@@ -257,7 +257,7 @@ export function ProjectForm({
 
         <Field label="Project idea">
           <textarea
-            className="field-input min-h-[120px] resize-y"
+            className="field-input min-h-30 resize-y"
             value={values.projectIdea}
             onChange={(e) => set("projectIdea", e.target.value)}
             placeholder="Describe the app you want to build..."
