@@ -125,9 +125,9 @@ Single-file regenerate and **Fix warnings** each use **1 API call**.
 
 Defined in `lib/model-presets.ts`:
 
-- **Fast / cheap** — `google/gemini-2.5-flash` (JSON-capable; used for Enhance prompt)
-- **Balanced** — `anthropic/claude-sonnet-4`
-- **High quality** — `anthropic/claude-opus-4`
+- **Fast / cheap** — `deepseek/deepseek-v4-flash` (JSON-capable; used for Enhance prompt)
+- **Balanced** — `z-ai/glm-5.1`
+- **High quality** — `anthropic/claude-sonnet-4.6`
 - **Custom** — any OpenRouter model ID; leave blank to use `OPENROUTER_MODEL` from env
 
 ## Generated files

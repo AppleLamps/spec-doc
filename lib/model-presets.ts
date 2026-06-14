@@ -19,7 +19,7 @@ export const MODEL_PRESETS: ModelPresetConfig[] = [
   {
     id: "fast",
     label: "Fast / cheap",
-    model: "google/gemini-2.5-flash",
+    model: "deepseek/deepseek-v4-flash",
     description: "Lower cost, faster drafts — best for core-only runs",
     defaultMaxCompletionTokens: 12_000,
     maxCompletionCap: 65_535,
@@ -28,7 +28,7 @@ export const MODEL_PRESETS: ModelPresetConfig[] = [
   {
     id: "balanced",
     label: "Balanced",
-    model: "anthropic/claude-sonnet-4",
+    model: "z-ai/glm-5.1",
     description: "Default quality/cost balance",
     defaultMaxCompletionTokens: 16_000,
     maxCompletionCap: 64_000,
@@ -37,7 +37,7 @@ export const MODEL_PRESETS: ModelPresetConfig[] = [
   {
     id: "high-quality",
     label: "High quality",
-    model: "anthropic/claude-opus-4",
+    model: "anthropic/claude-sonnet-4.6",
     description: "Stronger output, higher cost",
     defaultMaxCompletionTokens: 20_000,
     maxCompletionCap: 32_000,
