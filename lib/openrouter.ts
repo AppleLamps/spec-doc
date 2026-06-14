@@ -1,3 +1,5 @@
+import type { ChatResult } from "@openrouter/sdk/models/chatresult.js";
+import type { ChatRequest } from "@openrouter/sdk/models/chatrequest.js";
 import {
   buildSystemPrompt,
   buildUserPrompt,
@@ -18,8 +20,13 @@ import {
 import {
   getOpenRouterApiKey,
   getOpenRouterClient,
+  getOpenRouterSdkClient,
 } from "./openrouter-client";
 import { toOpenRouterClientError } from "./openrouter-sdk-errors";
+import {
+  buildStructuredChatRequest,
+  extractChatCompletionText,
+} from "./openrouter-structured";
 import type { StructuredOutputSchema } from "./openrouter-schemas";
 import type { SpecFileDefinition } from "./spec-files";
 import type {
@@ -128,7 +135,7 @@ function buildModelRouting(
 function buildJsonModelRouting(primary: string): { model: string; models?: string[] } {
   const models = getJsonFallbackModels(primary);
   if (models.length <= 1) {
-    return { model: primary };
+    return { model: models[0] ?? primary };
   }
   return { model: models[0], models };
 }
@@ -251,47 +258,64 @@ export async function completeOpenRouterChat(options: {
     );
   }
 
-  const routing = options.jsonMode || options.jsonSchema
-    ? buildJsonModelRouting(options.model)
-    : buildModelRouting(options.model, "custom");
-  const client = getOpenRouterClient();
+  if (useStructured && !modelSupportsJsonMode(options.model)) {
+    throw new OpenRouterClientError(
+      "model_not_found",
+      `Model ${options.model} does not support structured outputs on OpenRouter`,
+    );
+  }
 
-  const request = {
-    ...routing,
-    instructions: options.system,
-    input: options.user,
-    temperature: options.temperature ?? 0.3,
-    ...(options.maxTokens !== undefined
-      ? { maxOutputTokens: options.maxTokens }
-      : {}),
-    ...(useStructured
-      ? { text: { format: options.jsonSchema } }
-      : useJsonObject
-        ? { text: { format: { type: "json_object" as const } } }
-        : {}),
-  };
+  const routing = buildJsonModelRouting(options.model);
+  const sdkClient = getOpenRouterSdkClient();
 
   return withRetries(
     async () => {
-      const result = client.callModel(request, { signal: options.signal });
-      const response = await result.getResponse();
-      const usage = response.usage ? usageFromResponse(response.usage) : null;
+      const chatRequest: ChatRequest = useStructured
+        ? buildStructuredChatRequest({
+            ...routing,
+            system: options.system,
+            user: options.user,
+            temperature: options.temperature,
+            maxTokens: options.maxTokens,
+            jsonSchema: options.jsonSchema!,
+          })
+        : {
+            ...routing,
+            messages: [
+              { role: "system", content: options.system },
+              { role: "user", content: options.user },
+            ],
+            temperature: options.temperature ?? 0.3,
+            stream: false,
+            ...(options.maxTokens !== undefined
+              ? { maxCompletionTokens: options.maxTokens }
+              : {}),
+            ...(useJsonObject
+              ? {
+                  responseFormat: { type: "json_object" as const },
+                  provider: { requireParameters: true },
+                }
+              : {}),
+          };
+
+      const result = (await sdkClient.chat.send(
+        { chatRequest },
+        { signal: options.signal },
+      )) as ChatResult;
+
+      const usage = result.usage;
       if (usage) {
         console.info(
-          `[openrouter:usage] model=${options.model} prompt=${usage.prompt} completion=${usage.completion} total=${usage.total}`,
+          `[openrouter:usage] model=${result.model} prompt=${usage.promptTokens} completion=${usage.completionTokens} total=${usage.totalTokens}`,
         );
       }
 
-      if (response.status === "failed") {
-        throw new OpenRouterClientError(
-          "provider_error",
-          response.error?.message ?? "Completion failed",
-        );
-      }
-
-      const content = response.outputText?.trim() ?? "";
+      const content = extractChatCompletionText(result.choices[0]?.message);
       if (!content) {
-        throw new OpenRouterClientError("provider_error", "Empty completion content");
+        throw new OpenRouterClientError(
+          "unknown",
+          `Empty structured output from ${result.model || options.model}`,
+        );
       }
 
       return content;

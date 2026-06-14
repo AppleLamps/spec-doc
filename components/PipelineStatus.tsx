@@ -43,8 +43,8 @@ export function PipelineStatus({
   })();
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="border-b border-neutral-200 px-4 py-3">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="shrink-0 border-b border-neutral-200 px-4 py-3">
         <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-neutral-500">
           Build Pipeline
         </p>
@@ -53,7 +53,7 @@ export function PipelineStatus({
         </p>
       </div>
 
-      <div className="border-b border-neutral-200 px-4 py-3">
+      <div className="shrink-0 border-b border-neutral-200 px-4 py-3">
         <div className="h-1.5 w-full bg-neutral-100">
           <div
             className={`h-full transition-all duration-300 ${
@@ -70,7 +70,7 @@ export function PipelineStatus({
       </div>
 
       {runSummary && (
-        <div className="border-b border-neutral-200 px-4 py-3">
+        <div className="shrink-0 border-b border-neutral-200 px-4 py-3">
           <p className="text-[10px] font-medium uppercase tracking-wider text-neutral-400">
             Last run
           </p>
@@ -104,18 +104,18 @@ export function PipelineStatus({
       )}
 
       {globalError && (
-        <div className="mx-4 mt-4 border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+        <div className="mx-4 mt-4 shrink-0 border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
           {globalError}
         </div>
       )}
 
       {qualityReviewUnavailable && (
-        <div className="mx-4 mt-4 border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+        <div className="mx-4 mt-4 shrink-0 border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
           Quality review unavailable — other artifacts are still available.
         </div>
       )}
 
-      <ol className="flex-1 space-y-0 overflow-y-auto px-2 py-2">
+      <ol className="min-h-0 flex-1 space-y-0 overflow-y-auto px-2 py-2">
         {files.map((file, index) => {
           const isActive =
             file.path === activePath && file.status === "generating";
@@ -153,13 +153,13 @@ export function PipelineStatus({
       </ol>
 
       {errorCount > 0 && (
-        <div className="border-t border-neutral-200 px-4 py-3 text-xs text-red-700">
+        <div className="shrink-0 border-t border-neutral-200 px-4 py-3 text-xs text-red-700">
           {errorCount} file{errorCount === 1 ? "" : "s"} failed
         </div>
       )}
 
       {cancelledCount > 0 && runStatus === "cancelled" && (
-        <div className="border-t border-neutral-200 px-4 py-3 text-xs text-neutral-600">
+        <div className="shrink-0 border-t border-neutral-200 px-4 py-3 text-xs text-neutral-600">
           {cancelledCount} file{cancelledCount === 1 ? "" : "s"} cancelled
         </div>
       )}

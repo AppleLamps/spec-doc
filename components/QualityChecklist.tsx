@@ -11,13 +11,13 @@ export function QualityChecklist({ files }: QualityChecklistProps) {
   const checks = computeQualityChecks(files);
 
   return (
-    <div className="border-t border-neutral-200">
+    <div className="shrink-0 border-t border-neutral-200 bg-white">
       <div className="border-b border-neutral-200 px-4 py-3">
         <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-neutral-500">
           Quality Checklist
         </p>
       </div>
-      <ul className="space-y-0 px-2 py-2">
+      <ul className="space-y-0 px-2 py-2 pb-3">
         {checks.map((check) => (
           <li
             key={check.id}

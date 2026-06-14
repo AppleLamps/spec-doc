@@ -58,9 +58,8 @@ export const MODEL_PRESETS: ModelPresetConfig[] = [
   },
 ];
 
-/** JSON-capable model for enhance prompt — must support response_format. */
-export const ENHANCE_JSON_MODEL =
-  MODEL_PRESETS.find((p) => p.supportsJsonMode)?.model ?? "google/gemini-2.5-flash";
+/** JSON-capable model for enhance prompt / adaptive scope structured output. */
+export const ENHANCE_JSON_MODEL = "google/gemini-2.5-flash";
 
 export function getPresetConfig(preset: ModelPreset): ModelPresetConfig | undefined {
   return MODEL_PRESETS.find((item) => item.id === preset);
@@ -126,6 +125,11 @@ export function modelSupportsJsonMode(model: string): boolean {
   return /gemini|gpt-4|gpt-5|o3|o4|deepseek/.test(normalized);
 }
 
+/** Whether a model supports OpenRouter structured outputs (`response_format: json_schema`). */
+export function modelSupportsStructuredOutput(modelId: string): boolean {
+  return modelSupportsJsonMode(modelId);
+}
+
 export function resolveEffectiveMaxTokens(settings: GenerationSettings): number {
   const preset = getPresetConfig(settings.modelPreset);
   const cap = preset?.maxCompletionCap ?? 32_000;
@@ -150,6 +154,13 @@ const PRESET_FALLBACK_ORDER: ModelPreset[] = [
   "fast",
 ];
 
+/** OpenRouter rejects requests when `models` has more than three entries. */
+export const MAX_OPENROUTER_ROUTING_MODELS = 3;
+
+export function capRoutingModels(models: string[]): string[] {
+  return models.slice(0, MAX_OPENROUTER_ROUTING_MODELS);
+}
+
 /** Ordered fallback model IDs for OpenRouter routing (primary first, then alternates). */
 export function getFallbackModels(
   primary: string,
@@ -172,17 +183,16 @@ export function getFallbackModels(
     seen.add(key);
     unique.push(model.trim());
   }
-  return unique;
+  return capRoutingModels(unique);
 }
 
 /** Ordered fallback model IDs for JSON/structured-output calls. */
 export function getJsonFallbackModels(primary: string): string[] {
   const candidates = [
     primary.trim(),
-    ...MODEL_PRESETS.filter((preset) => preset.supportsJsonMode)
-      .map((preset) => preset.model)
-      .filter(Boolean),
-    "google/gemini-2.5-flash",
+    ENHANCE_JSON_MODEL,
+    getPresetConfig("balanced")?.model ?? "",
+    "anthropic/claude-sonnet-4.6",
   ];
 
   const seen = new Set<string>();
@@ -193,5 +203,7 @@ export function getJsonFallbackModels(primary: string): string[] {
     seen.add(key);
     unique.push(model.trim());
   }
-  return unique;
+
+  const capable = unique.filter((model) => modelSupportsStructuredOutput(model));
+  return capRoutingModels(capable.length > 0 ? capable : unique);
 }

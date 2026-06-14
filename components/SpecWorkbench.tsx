@@ -981,7 +981,7 @@ export function SpecWorkbench() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-neutral-100 lg:h-full lg:min-h-0">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-neutral-100">
       <ConfirmDialog
         open={!!confirmDialog}
         title={confirmDialog?.title ?? ""}
@@ -1010,31 +1010,33 @@ export function SpecWorkbench() {
         <span className="font-mono text-[11px] text-neutral-400">{headerStatus}</span>
       </header>
 
-      <div className="grid grid-cols-1 lg:min-h-0 lg:flex-1 lg:grid-cols-[280px_minmax(0,1fr)_240px]">
-        <aside className="flex min-h-0 flex-col border-b border-neutral-200 bg-white lg:border-b-0 lg:border-r">
-          <ProjectForm
-            values={form}
-            onChange={handleFormChange}
-            onCompile={handleCompile}
-            onGenerateMissing={handleGenerateMissing}
-            onStop={handleStop}
-            onDownload={handleDownload}
-            onClearWorkspace={handleClearWorkspace}
-            onEnhancePrompt={() => void handleEnhancePrompt()}
-            isGenerating={isGenerating}
-            isEnhancing={isEnhancing || isSelectingAdaptiveScope}
-            enhanceRationale={enhanceRationale}
-            canDownload={canDownload}
-            canGenerateMissing={canGenerateMissing}
-            saveIndicator={saveIndicator}
-            error={error}
-            hasApiKey={hasApiKey}
-            isEmptyWorkspace={isEmptyWorkspace}
-            envDefaultModel={envDefaultModel}
-            adaptiveSelection={adaptiveSelection}
-            adaptivePoolCount={adaptivePoolDefinitions.length}
-          />
-          <div className="min-h-[200px] flex-1">
+      <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto lg:grid-cols-[280px_minmax(0,1fr)_240px] lg:overflow-hidden">
+        <aside className="flex min-h-0 flex-col overflow-hidden border-b border-neutral-200 bg-white lg:border-b-0 lg:border-r">
+          <div className="flex min-h-0 flex-[3] flex-col overflow-hidden lg:min-h-[220px]">
+            <ProjectForm
+              values={form}
+              onChange={handleFormChange}
+              onCompile={handleCompile}
+              onGenerateMissing={handleGenerateMissing}
+              onStop={handleStop}
+              onDownload={handleDownload}
+              onClearWorkspace={handleClearWorkspace}
+              onEnhancePrompt={() => void handleEnhancePrompt()}
+              isGenerating={isGenerating}
+              isEnhancing={isEnhancing || isSelectingAdaptiveScope}
+              enhanceRationale={enhanceRationale}
+              canDownload={canDownload}
+              canGenerateMissing={canGenerateMissing}
+              saveIndicator={saveIndicator}
+              error={error}
+              hasApiKey={hasApiKey}
+              isEmptyWorkspace={isEmptyWorkspace}
+              envDefaultModel={envDefaultModel}
+              adaptiveSelection={adaptiveSelection}
+              adaptivePoolCount={adaptivePoolDefinitions.length}
+            />
+          </div>
+          <div className="flex min-h-0 flex-[2] flex-col overflow-hidden border-t border-neutral-200 lg:min-h-[160px]">
             <FileTree
               files={files}
               selectedPath={selectedPath ?? activePath}
@@ -1044,7 +1046,7 @@ export function SpecWorkbench() {
           </div>
         </aside>
 
-        <main className="min-h-[420px] border-b border-neutral-200 lg:border-b-0 lg:border-r">
+        <main className="flex min-h-[420px] flex-col border-b border-neutral-200 lg:min-h-0 lg:border-b-0 lg:border-r">
           <EditorPanel
             file={selectedFile}
             projectName={form.projectName}
@@ -1059,7 +1061,7 @@ export function SpecWorkbench() {
           />
         </main>
 
-        <aside className="flex min-h-[240px] flex-col bg-white">
+        <aside className="flex min-h-0 flex-col overflow-hidden bg-white">
           <PipelineStatus
             files={files}
             runStatus={runStatus}

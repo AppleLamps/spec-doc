@@ -213,8 +213,8 @@ export function ProjectForm({
         : "Unsaved changes";
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="border-b border-neutral-200 px-4 py-3">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="shrink-0 border-b border-neutral-200 px-4 py-3">
         <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-neutral-500">
           Workspace
         </p>
@@ -230,7 +230,7 @@ export function ProjectForm({
         </p>
       </div>
 
-      <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
         {hasApiKey === false && (
           <div className="border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
             OpenRouter API key not configured. Add OPENROUTER_API_KEY to
@@ -519,7 +519,7 @@ export function ProjectForm({
         )}
       </div>
 
-      <div className="space-y-2 border-t border-neutral-200 px-4 py-4">
+      <div className="shrink-0 space-y-2 border-t border-neutral-200 bg-white px-4 py-4">
         {isGenerating ? (
           <button type="button" className="btn-stop w-full" onClick={onStop}>
             Stop

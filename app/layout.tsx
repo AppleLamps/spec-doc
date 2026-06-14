@@ -26,7 +26,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${plexSans.variable} ${plexMono.variable} h-full`}>
-      <body className="h-full min-h-screen bg-neutral-100 font-sans text-neutral-900 antialiased">
+      <body className="h-dvh overflow-hidden bg-neutral-100 font-sans text-neutral-900 antialiased">
         {children}
       </body>
     </html>
