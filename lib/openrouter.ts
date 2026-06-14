@@ -5,76 +5,39 @@ import {
 } from "./prompt-builder";
 import { getServerDefaultModel } from "./config";
 import {
+  getFallbackModels,
+  getJsonFallbackModels,
   modelSupportsJsonMode,
   resolveEffectiveMaxTokens,
   resolveModelFromSettings,
 } from "./model-presets";
 import {
-  classifyOpenRouterError,
   isRetryableOpenRouterError,
-  logOpenRouterError,
-  toUserOpenRouterMessage,
+  OpenRouterClientError,
 } from "./openrouter-errors";
+import {
+  getOpenRouterApiKey,
+  getOpenRouterClient,
+} from "./openrouter-client";
+import { toOpenRouterClientError } from "./openrouter-sdk-errors";
+import type { StructuredOutputSchema } from "./openrouter-schemas";
 import type { SpecFileDefinition } from "./spec-files";
-import type { GenerateRequest, GenerationSettings, StreamEvent } from "./types";
+import type {
+  GenerateRequest,
+  GenerationSettings,
+  StreamEvent,
+  StreamUsage,
+} from "./types";
 import { isAbortError } from "./stream-parser";
 
-const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const MAX_RETRIES = 2;
+const MAX_RETRIES = 3;
 const RETRY_BASE_MS = 1000;
 
-type StreamChunk = {
-  error?: {
-    message?: string;
-    code?: number | string;
-  };
-  choices?: Array<{
-    delta?: {
-      content?: string;
-    };
-    finish_reason?: string | null;
-  }>;
-  usage?: {
-    prompt_tokens?: number;
-    completion_tokens?: number;
-    total_tokens?: number;
-  };
-};
+export { getOpenRouterApiKey };
 
 export function getOpenRouterModel(settings?: GenerationSettings): string {
   if (!settings) return getServerDefaultModel();
   return resolveModelFromSettings(settings);
-}
-
-export function getOpenRouterApiKey(): string | undefined {
-  return process.env.OPENROUTER_API_KEY?.trim();
-}
-
-function buildOpenRouterHeaders(): Record<string, string> {
-  return {
-    Authorization: `Bearer ${getOpenRouterApiKey()}`,
-    "Content-Type": "application/json",
-    "HTTP-Referer":
-      process.env.NEXT_PUBLIC_APP_URL?.trim() || "http://localhost:3000",
-    "X-Title": "Prompt to Spec",
-  };
-}
-
-function buildRequestBody(input: GenerateRequest, file: SpecFileDefinition) {
-  const settings = input.settings;
-  return {
-    model: getOpenRouterModel(settings),
-    stream: true,
-    temperature: resolveTemperature(settings.temperature),
-    max_tokens: resolveEffectiveMaxTokens(settings),
-    messages: [
-      { role: "system", content: buildSystemPrompt() },
-      {
-        role: "user",
-        content: buildUserPrompt(input, file, input.contextFiles ?? []),
-      },
-    ],
-  };
 }
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
@@ -95,19 +58,29 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-async function fetchOpenRouter(
-  body: Record<string, unknown>,
+function usageFromResponse(usage: {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+}): StreamUsage | null {
+  if (!usage.totalTokens) return null;
+  return {
+    prompt: usage.inputTokens ?? 0,
+    completion: usage.outputTokens ?? 0,
+    total: usage.totalTokens,
+  };
+}
+
+function logStreamUsage(usage: StreamUsage, model: string): void {
+  console.info(
+    `[openrouter:usage] model=${model} prompt=${usage.prompt} completion=${usage.completion} total=${usage.total}`,
+  );
+}
+
+async function withRetries<T>(
+  fn: () => Promise<T>,
   signal?: AbortSignal,
-): Promise<Response> {
-  const apiKey = getOpenRouterApiKey();
-  if (!apiKey) {
-    throw new OpenRouterClientError("missing_api_key", "OPENROUTER_API_KEY missing");
-  }
-
-  if (signal?.aborted) {
-    throw new DOMException("Aborted", "AbortError");
-  }
-
+): Promise<T> {
   let lastError: OpenRouterClientError | null = null;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
@@ -116,164 +89,140 @@ async function fetchOpenRouter(
     }
 
     try {
-      const response = await fetch(OPENROUTER_URL, {
-        method: "POST",
-        headers: buildOpenRouterHeaders(),
-        body: JSON.stringify(body),
-        signal,
-      });
-
-      if (response.ok) {
-        return response;
+      return await fn();
+    } catch (error) {
+      if (isAbortError(error)) {
+        throw new DOMException("Aborted", "AbortError");
       }
 
-      const errorText = await response.text();
-      const kind = classifyOpenRouterError(response.status, errorText);
-      lastError = new OpenRouterClientError(kind, errorText);
+      const clientError = toOpenRouterClientError(error);
+      lastError = clientError;
 
       if (
         attempt < MAX_RETRIES &&
-        isRetryableOpenRouterError(kind) &&
+        isRetryableOpenRouterError(clientError.kind) &&
         !signal?.aborted
       ) {
         await sleep(RETRY_BASE_MS * 2 ** attempt, signal);
         continue;
       }
 
-      throw lastError;
-    } catch (error) {
-      if (isAbortError(error)) {
-        throw new DOMException("Aborted", "AbortError");
-      }
-      if (error instanceof OpenRouterClientError) {
-        throw error;
-      }
-      const kind = classifyOpenRouterError(undefined, "", error);
-      throw new OpenRouterClientError(kind, String(error));
+      throw clientError;
     }
   }
 
   throw lastError ?? new OpenRouterClientError("unknown", "Request failed");
 }
 
-function parseStreamChunk(payload: string): StreamChunk | null {
-  try {
-    return JSON.parse(payload) as StreamChunk;
-  } catch {
-    return null;
+function buildModelRouting(
+  primary: string,
+  preset: GenerationSettings["modelPreset"],
+): { model: string; models?: string[] } {
+  const models = getFallbackModels(primary, preset);
+  if (models.length <= 1) {
+    return { model: primary };
   }
+  return { model: models[0], models };
 }
 
-function throwIfStreamError(parsed: StreamChunk): void {
-  if (parsed.error?.message) {
-    const detail = parsed.error.message;
-    const kind = classifyOpenRouterError(
-      typeof parsed.error.code === "number" ? parsed.error.code : undefined,
-      detail,
-    );
-    throw new OpenRouterClientError(kind, detail);
+function buildJsonModelRouting(primary: string): { model: string; models?: string[] } {
+  const models = getJsonFallbackModels(primary);
+  if (models.length <= 1) {
+    return { model: primary };
   }
-
-  const finishReason = parsed.choices?.[0]?.finish_reason;
-  if (finishReason === "error") {
-    throw new OpenRouterClientError("provider_error", "Stream ended with error");
-  }
+  return { model: models[0], models };
 }
 
-function logStreamUsage(parsed: StreamChunk, model: string): void {
-  if (!parsed.usage?.total_tokens) return;
-  console.info(
-    `[openrouter:usage] model=${model} prompt=${parsed.usage.prompt_tokens ?? 0} completion=${parsed.usage.completion_tokens ?? 0} total=${parsed.usage.total_tokens}`,
-  );
-}
-
-export class OpenRouterClientError extends Error {
-  kind: ReturnType<typeof classifyOpenRouterError>;
-
-  constructor(kind: ReturnType<typeof classifyOpenRouterError>, detail: string) {
-    super(toUserOpenRouterMessage(kind));
-    this.name = "OpenRouterClientError";
-    this.kind = kind;
-    logOpenRouterError(kind, detail);
-  }
-}
+export { OpenRouterClientError };
 
 export async function* streamSpecFile(
   input: GenerateRequest,
   file: SpecFileDefinition,
   signal?: AbortSignal,
+  options?: { onUsage?: (usage: StreamUsage, model: string) => void },
 ): AsyncGenerator<string, void, undefined> {
-  const model = getOpenRouterModel(input.settings);
-  const response = await fetchOpenRouter(
-    buildRequestBody(input, file) as Record<string, unknown>,
-    signal,
-  );
-
-  if (!response.body) {
-    throw new OpenRouterClientError("provider_error", "Empty response body");
+  if (!getOpenRouterApiKey()) {
+    throw new OpenRouterClientError("missing_api_key", "OPENROUTER_API_KEY missing");
   }
 
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
+  const model = getOpenRouterModel(input.settings);
+  const routing = buildModelRouting(model, input.settings.modelPreset);
+  const client = getOpenRouterClient();
+  let emittedAnyDelta = false;
+  let lastError: OpenRouterClientError | null = null;
 
-  try {
-    while (true) {
-      if (signal?.aborted) {
-        await reader.cancel().catch(() => undefined);
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
+    if (signal?.aborted) {
+      throw new DOMException("Aborted", "AbortError");
+    }
+
+    const result = client.callModel(
+      {
+        ...routing,
+        instructions: buildSystemPrompt(),
+        input: buildUserPrompt(input, file, input.contextFiles ?? []),
+        temperature: resolveTemperature(input.settings.temperature),
+        maxOutputTokens: resolveEffectiveMaxTokens(input.settings),
+      },
+      { signal },
+    );
+
+    const responsePromise = result.getResponse();
+    responsePromise.catch(() => undefined);
+
+    try {
+      for await (const delta of result.getTextStream()) {
+        if (signal?.aborted) {
+          throw new DOMException("Aborted", "AbortError");
+        }
+        if (delta) {
+          emittedAnyDelta = true;
+          yield delta;
+        }
+      }
+
+      const response = await responsePromise;
+      if (response.status === "failed") {
+        throw new OpenRouterClientError(
+          "provider_error",
+          response.error?.message ?? "Stream ended with error",
+        );
+      }
+
+      const usage = response.usage ? usageFromResponse(response.usage) : null;
+      if (usage) {
+        logStreamUsage(usage, response.model || model);
+        options?.onUsage?.(usage, response.model || model);
+      }
+      return;
+    } catch (error) {
+      if (isAbortError(error)) {
         throw new DOMException("Aborted", "AbortError");
       }
 
-      const { done, value } = await reader.read();
-      if (done) break;
+      const clientError = toOpenRouterClientError(error);
+      lastError = clientError;
 
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith("data:")) continue;
-
-        const payload = trimmed.slice(5).trim();
-        if (payload === "[DONE]") return;
-
-        const parsed = parseStreamChunk(payload);
-        if (!parsed) continue;
-
-        throwIfStreamError(parsed);
-        logStreamUsage(parsed, model);
-
-        const delta = parsed.choices?.[0]?.delta?.content;
-        if (delta) yield delta;
+      if (
+        !emittedAnyDelta &&
+        attempt < MAX_RETRIES &&
+        isRetryableOpenRouterError(clientError.kind) &&
+        !signal?.aborted
+      ) {
+        await sleep(RETRY_BASE_MS * 2 ** attempt, signal);
+        continue;
       }
+
+      throw clientError;
     }
-  } catch (error) {
-    if (isAbortError(error)) {
-      throw new DOMException("Aborted", "AbortError");
-    }
-    throw error;
-  } finally {
-    reader.releaseLock();
   }
+
+  throw lastError ?? new OpenRouterClientError("unknown", "Request failed");
 }
 
 export function encodeStreamEvent(event: StreamEvent): Uint8Array {
   return new TextEncoder().encode(`${JSON.stringify(event)}\n`);
 }
-
-type ChatCompletionResponse = {
-  choices?: Array<{
-    message?: {
-      content?: string;
-    };
-  }>;
-  usage?: {
-    prompt_tokens?: number;
-    completion_tokens?: number;
-    total_tokens?: number;
-  };
-};
 
 export async function completeOpenRouterChat(options: {
   model: string;
@@ -282,51 +231,73 @@ export async function completeOpenRouterChat(options: {
   temperature?: number;
   maxTokens?: number;
   jsonMode?: boolean;
+  jsonSchema?: StructuredOutputSchema;
   signal?: AbortSignal;
 }): Promise<string> {
+  if (!getOpenRouterApiKey()) {
+    throw new OpenRouterClientError("missing_api_key", "OPENROUTER_API_KEY missing");
+  }
   if (options.signal?.aborted) {
     throw new DOMException("Aborted", "AbortError");
   }
 
-  const body: Record<string, unknown> = {
-    model: options.model,
-    stream: false,
-    temperature: options.temperature ?? 0.3,
-    messages: [
-      { role: "system", content: options.system },
-      { role: "user", content: options.user },
-    ],
-  };
+  const useStructured = Boolean(options.jsonSchema);
+  const useJsonObject = options.jsonMode && !useStructured;
 
-  if (options.maxTokens !== undefined) {
-    body.max_tokens = options.maxTokens;
-  }
-
-  if (options.jsonMode) {
-    if (!modelSupportsJsonMode(options.model)) {
-      throw new OpenRouterClientError(
-        "provider_error",
-        `Model ${options.model} does not support JSON mode on OpenRouter`,
-      );
-    }
-    body.response_format = { type: "json_object" };
-  }
-
-  const response = await fetchOpenRouter(body, options.signal);
-  const payload = (await response.json()) as ChatCompletionResponse;
-
-  if (payload.usage?.total_tokens) {
-    console.info(
-      `[openrouter:usage] model=${options.model} prompt=${payload.usage.prompt_tokens ?? 0} completion=${payload.usage.completion_tokens ?? 0} total=${payload.usage.total_tokens}`,
+  if (useJsonObject && !modelSupportsJsonMode(options.model)) {
+    throw new OpenRouterClientError(
+      "provider_error",
+      `Model ${options.model} does not support JSON mode on OpenRouter`,
     );
   }
 
-  const content = payload.choices?.[0]?.message?.content?.trim();
-  if (!content) {
-    throw new OpenRouterClientError("provider_error", "Empty completion content");
-  }
+  const routing = options.jsonMode || options.jsonSchema
+    ? buildJsonModelRouting(options.model)
+    : buildModelRouting(options.model, "custom");
+  const client = getOpenRouterClient();
 
-  return content;
+  const request = {
+    ...routing,
+    instructions: options.system,
+    input: options.user,
+    temperature: options.temperature ?? 0.3,
+    ...(options.maxTokens !== undefined
+      ? { maxOutputTokens: options.maxTokens }
+      : {}),
+    ...(useStructured
+      ? { text: { format: options.jsonSchema } }
+      : useJsonObject
+        ? { text: { format: { type: "json_object" as const } } }
+        : {}),
+  };
+
+  return withRetries(
+    async () => {
+      const result = client.callModel(request, { signal: options.signal });
+      const response = await result.getResponse();
+      const usage = response.usage ? usageFromResponse(response.usage) : null;
+      if (usage) {
+        console.info(
+          `[openrouter:usage] model=${options.model} prompt=${usage.prompt} completion=${usage.completion} total=${usage.total}`,
+        );
+      }
+
+      if (response.status === "failed") {
+        throw new OpenRouterClientError(
+          "provider_error",
+          response.error?.message ?? "Completion failed",
+        );
+      }
+
+      const content = response.outputText?.trim() ?? "";
+      if (!content) {
+        throw new OpenRouterClientError("provider_error", "Empty completion content");
+      }
+
+      return content;
+    },
+    options.signal,
+  );
 }
 
 export { isAbortError };

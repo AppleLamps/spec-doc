@@ -274,7 +274,16 @@ export async function POST(request: Request) {
           emit({ type: "file_start", path: file.path });
 
           try {
-            for await (const delta of streamSpecFile(input, file, request.signal)) {
+            for await (const delta of streamSpecFile(input, file, request.signal, {
+              onUsage: (usage, model) => {
+                emit({
+                  type: "usage",
+                  path: file.path,
+                  model,
+                  usage,
+                });
+              },
+            })) {
               if (request.signal.aborted) {
                 emit({ type: "cancelled", path: file.path });
                 return;

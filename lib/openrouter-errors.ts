@@ -91,8 +91,23 @@ export function logOpenRouterError(
   console.error(`[openrouter:${kind}]`, detail.slice(0, 500));
 }
 
+export class OpenRouterClientError extends Error {
+  kind: OpenRouterErrorKind;
+
+  constructor(kind: OpenRouterErrorKind, detail: string) {
+    super(toUserOpenRouterMessage(kind));
+    this.name = "OpenRouterClientError";
+    this.kind = kind;
+    logOpenRouterError(kind, detail);
+  }
+}
+
 export function isRetryableOpenRouterError(
   kind: OpenRouterErrorKind,
 ): boolean {
-  return kind === "rate_limited" || kind === "provider_error";
+  return (
+    kind === "rate_limited" ||
+    kind === "provider_error" ||
+    kind === "network_error"
+  );
 }

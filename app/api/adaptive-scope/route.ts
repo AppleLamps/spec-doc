@@ -4,13 +4,14 @@ import {
   buildAdaptiveScopeUserPrompt,
   parseAdaptiveScopeResponse,
 } from "@/lib/adaptive-scope";
-import { ENHANCE_PROMPT_MODEL } from "@/lib/enhance-prompt";
+import { getEnhancePromptModel } from "@/lib/enhance-prompt";
 import {
   completeOpenRouterChat,
   getOpenRouterApiKey,
   isAbortError,
   OpenRouterClientError,
 } from "@/lib/openrouter";
+import { ADAPTIVE_SCOPE_JSON_SCHEMA } from "@/lib/openrouter-schemas";
 import type { AppType, TargetAgent } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -95,12 +96,12 @@ export async function POST(request: Request) {
 
   try {
     const raw = await completeOpenRouterChat({
-      model: ENHANCE_PROMPT_MODEL,
+      model: getEnhancePromptModel(),
       system: ADAPTIVE_SCOPE_SYSTEM_PROMPT,
       user: buildAdaptiveScopeUserPrompt(input),
       temperature: 0.2,
       maxTokens: 2048,
-      jsonMode: true,
+      jsonSchema: ADAPTIVE_SCOPE_JSON_SCHEMA,
       signal: request.signal,
     });
 

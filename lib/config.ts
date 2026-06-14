@@ -1,4 +1,5 @@
-export const DEFAULT_MODEL = "anthropic/claude-sonnet-4";
+/** Matches the balanced preset default; used when custom preset has no model override. */
+export const DEFAULT_MODEL = "z-ai/glm-5.1";
 export const DEFAULT_TEMPERATURE = 0.2;
 
 export const SAMPLE_IDEA = {

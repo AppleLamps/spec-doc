@@ -9,6 +9,13 @@ import type {
 } from "./types";
 
 /** Model used for prompt enhancement — must support OpenRouter JSON mode. */
+export function getEnhancePromptModel(): string {
+  return (
+    process.env.OPENROUTER_ENHANCE_MODEL?.trim() || ENHANCE_JSON_MODEL
+  );
+}
+
+/** @deprecated Use getEnhancePromptModel() — kept for imports that expect a constant at module load. */
 export const ENHANCE_PROMPT_MODEL = ENHANCE_JSON_MODEL;
 
 export type EnhancePromptInput = {

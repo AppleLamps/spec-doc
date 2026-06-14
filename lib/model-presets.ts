@@ -1,5 +1,9 @@
 import { DEFAULT_MODEL, getServerDefaultModel } from "./config";
 import { resolveMaxTokens } from "./prompt-builder";
+import {
+  getCachedModel,
+  modelSupportsJsonFromCatalog,
+} from "./openrouter-models-cache";
 import type { GenerationSettings, ModelPreset } from "./types";
 
 export type ModelPresetConfig = {
@@ -32,7 +36,7 @@ export const MODEL_PRESETS: ModelPresetConfig[] = [
     description: "Default quality/cost balance",
     defaultMaxCompletionTokens: 16_000,
     maxCompletionCap: 64_000,
-    supportsJsonMode: false,
+    supportsJsonMode: true,
   },
   {
     id: "high-quality",
@@ -41,7 +45,7 @@ export const MODEL_PRESETS: ModelPresetConfig[] = [
     description: "Stronger output, higher cost",
     defaultMaxCompletionTokens: 20_000,
     maxCompletionCap: 32_000,
-    supportsJsonMode: false,
+    supportsJsonMode: true,
   },
   {
     id: "custom",
@@ -106,6 +110,11 @@ export function getPresetModel(
 export function modelSupportsJsonMode(model: string): boolean {
   const normalized = model.trim().toLowerCase();
   if (!normalized) return false;
+
+  if (getCachedModel(model)) {
+    return modelSupportsJsonFromCatalog(model);
+  }
+
   if (
     MODEL_PRESETS.some(
       (preset) =>
@@ -114,7 +123,6 @@ export function modelSupportsJsonMode(model: string): boolean {
   ) {
     return true;
   }
-  // Heuristic for custom OpenRouter models that typically support JSON mode.
   return /gemini|gpt-4|gpt-5|o3|o4|deepseek/.test(normalized);
 }
 
@@ -134,4 +142,56 @@ export function getPresetUiWarning(preset: ModelPreset): string | null {
     return "Fast preset optimizes for cost and speed. Use Balanced or High quality for longer, more detailed spec files.";
   }
   return null;
+}
+
+const PRESET_FALLBACK_ORDER: ModelPreset[] = [
+  "high-quality",
+  "balanced",
+  "fast",
+];
+
+/** Ordered fallback model IDs for OpenRouter routing (primary first, then alternates). */
+export function getFallbackModels(
+  primary: string,
+  preset: ModelPreset,
+): string[] {
+  const normalizedPrimary = primary.trim();
+  const candidates = [
+    normalizedPrimary,
+    ...PRESET_FALLBACK_ORDER.filter((id) => id !== preset && id !== "custom")
+      .map((id) => getPresetConfig(id)?.model ?? "")
+      .filter(Boolean),
+    getServerDefaultModel(),
+  ];
+
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const model of candidates) {
+    const key = model.trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    unique.push(model.trim());
+  }
+  return unique;
+}
+
+/** Ordered fallback model IDs for JSON/structured-output calls. */
+export function getJsonFallbackModels(primary: string): string[] {
+  const candidates = [
+    primary.trim(),
+    ...MODEL_PRESETS.filter((preset) => preset.supportsJsonMode)
+      .map((preset) => preset.model)
+      .filter(Boolean),
+    "google/gemini-2.5-flash",
+  ];
+
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const model of candidates) {
+    const key = model.trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    unique.push(model.trim());
+  }
+  return unique;
 }

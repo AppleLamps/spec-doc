@@ -1,6 +1,6 @@
 import {
   buildEnhanceUserPrompt,
-  ENHANCE_PROMPT_MODEL,
+  getEnhancePromptModel,
   ENHANCE_SYSTEM_PROMPT,
   parseEnhanceResponse,
   type EnhancePromptInput,
@@ -10,6 +10,7 @@ import {
   getOpenRouterApiKey,
   OpenRouterClientError,
 } from "@/lib/openrouter";
+import { ENHANCE_PROMPT_JSON_SCHEMA } from "@/lib/openrouter-schemas";
 import type { AppType, TargetAgent } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -71,12 +72,12 @@ export async function POST(request: Request) {
 
   try {
     const raw = await completeOpenRouterChat({
-      model: ENHANCE_PROMPT_MODEL,
+      model: getEnhancePromptModel(),
       system: ENHANCE_SYSTEM_PROMPT,
       user: buildEnhanceUserPrompt(body),
       temperature: 0.3,
       maxTokens: 2048,
-      jsonMode: true,
+      jsonSchema: ENHANCE_PROMPT_JSON_SCHEMA,
       signal: request.signal,
     });
 

@@ -4,6 +4,7 @@ const VALID_EVENT_TYPES = new Set<StreamEvent["type"]>([
   "file_start",
   "file_delta",
   "file_done",
+  "usage",
   "error",
   "cancelled",
   "complete",
@@ -38,6 +39,19 @@ function isStreamEvent(value: unknown): value is StreamEvent {
       return typeof record.path === "string";
     case "file_delta":
       return typeof record.path === "string" && typeof record.delta === "string";
+    case "usage": {
+      if (typeof record.path !== "string" || typeof record.model !== "string") {
+        return false;
+      }
+      const usage = record.usage;
+      return (
+        !!usage &&
+        typeof usage === "object" &&
+        typeof (usage as Record<string, unknown>).prompt === "number" &&
+        typeof (usage as Record<string, unknown>).completion === "number" &&
+        typeof (usage as Record<string, unknown>).total === "number"
+      );
+    }
     case "error":
       return typeof record.message === "string";
     case "cancelled":

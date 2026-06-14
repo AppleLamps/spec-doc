@@ -21,10 +21,17 @@ export type SpecFile = {
   status: SpecFileStatus;
 };
 
+export type StreamUsage = {
+  prompt: number;
+  completion: number;
+  total: number;
+};
+
 export type StreamEvent =
   | { type: "file_start"; path: string }
   | { type: "file_delta"; path: string; delta: string }
   | { type: "file_done"; path: string }
+  | { type: "usage"; path: string; model: string; usage: StreamUsage }
   | { type: "error"; path?: string; message: string }
   | { type: "cancelled"; path?: string }
   | { type: "complete" };
